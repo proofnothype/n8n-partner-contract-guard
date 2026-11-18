@@ -1,0 +1,511 @@
+{
+  "name": "03 - Partner Readiness Orchestrator",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "ccdc66dd-47fa-4ded-8007-89850925f3ca",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "63a8021c-3ed9-478e-b2c4-1cd6a6157654",
+              "name": "release_id",
+              "value": "REL-001",
+              "type": "string"
+            },
+            {
+              "id": "5ef02609-7d70-418a-b340-8b0ef92f1c78",
+              "name": "connector_id",
+              "value": "partner_alpha",
+              "type": "string"
+            },
+            {
+              "id": "daaba099-2b4d-492c-a442-2a7e7125cee0",
+              "name": "scenario",
+              "value": "v1_ok",
+              "type": "string"
+            },
+            {
+              "id": "c92a9084-46b2-4d11-9f19-520ebe91257b",
+              "name": "requested_by",
+              "value": "demo_requester",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "88849ea4-3803-4d25-8567-45a828e6db64",
+      "name": "Release Request"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "RESELECT_WORKFLOW_02_IN_N8N",
+          "mode": "list",
+          "cachedResultName": "02 - Partner Contract Checker"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "release_id": "={{ $json.release_id }}",
+            "connector_id": "={{ $json.connector_id }}",
+            "scenario": "={{ $json.scenario }}",
+            "requested_by": "={{ $json.requested_by }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "release_id",
+              "displayName": "release_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "connector_id",
+              "displayName": "connector_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "scenario",
+              "displayName": "scenario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "requested_by",
+              "displayName": "requested_by",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        448,
+        0
+      ],
+      "id": "0be44289-84a9-4f0c-a70a-4b9a789dbb5f",
+      "name": "Run Partner Contract Check"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst result = $input.first().json;\n\nlet readiness_decision;\nlet approval_required = false;\nlet reason;\n\nif (\n  result.verdict === \"PASS\" &&\n  result.http_status === 200\n) {\n  readiness_decision = \"PENDING_APPROVAL\";\n  approval_required = true;\n  reason = \"Contract validation passed. Human approval required.\";\n} else if (result.verdict === \"WARN\") {\n  readiness_decision = \"REVIEW\";\n  reason = \"Contract warnings require investigation before release.\";\n} else {\n  readiness_decision = \"NO_GO\";\n  reason = `Release blocked. Contract verdict: ${result.verdict ?? \"UNKNOWN\"}.`;\n}\n\nreturn [{\n  json: {\n    ...result,\n    readiness_decision,\n    approval_required,\n    reason,\n    assessed_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "eb5efe48-da72-49b9-96b8-f619a0877721",
+      "name": "Assess Release Readiness"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "2c65298e-2247-41b2-8086-4edf46e0649d",
+              "leftValue": "={{ $json.approval_required }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        896,
+        0
+      ],
+      "id": "80638613-cd34-4c4c-bb90-923f3574b7b2",
+      "name": "Approval Required?"
+    },
+    {
+      "parameters": {
+        "resume": "form",
+        "formTitle": "Partner Release Approval",
+        "formDescription": "=\n{{ 'Release: ' + $('Assess Release Readiness').first().json.release_id + ' | Partner: ' + $('Assess Release Readiness').first().json.connector_id + ' | Contract verdict: ' + $('Assess Release Readiness').first().json.verdict + ' | Records checked: ' + $('Assess Release Readiness').first().json.records_checked }}\n",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Decision",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Approve"
+                  },
+                  {
+                    "option": "Reject"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Reviewer Name",
+              "placeholder": "Enter reviewer name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Comments",
+              "fieldType": "textarea",
+              "placeholder": "Reason for approval or rejection"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        -96
+      ],
+      "id": "63e76576-78d9-49c3-84f3-6469f2d2dad7",
+      "name": "Human Release Approval"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst approval = $input.first().json;\nconst assessment = $('Assess Release Readiness').first().json;\n\nconst reviewer = String(approval[\"Reviewer Name\"] ?? \"\").trim();\nconst decision = approval.Decision;\n\nconst eligible =\n  assessment.verdict === \"PASS\" &&\n  assessment.http_status === 200 &&\n  assessment.readiness_decision === \"PENDING_APPROVAL\" &&\n  assessment.approval_required === true;\n\nconst approved =\n  eligible &&\n  decision === \"Approve\" &&\n  reviewer.length > 0;\n\nconst final_decision = approved ? \"GO\" : \"NO_GO\";\n\nlet reason;\n\nif (approved) {\n  reason = \"Contract passed and reviewer approved the release.\";\n} else if (!eligible) {\n  reason = \"Release is not eligible for approval.\";\n} else if (decision === \"Reject\") {\n  reason = \"Reviewer rejected the release.\";\n} else {\n  reason = \"Valid reviewer approval was not received.\";\n}\n\nreturn [{\n  json: {\n    ...assessment,\n    reviewer_name: reviewer,\n    reviewer_decision: decision ?? \"UNKNOWN\",\n    reviewer_comments: approval.Comments ?? \"\",\n    approval_submitted_at: approval.submittedAt ?? null,\n    final_decision,\n    final_reason: reason,\n    finalised_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        -96
+      ],
+      "id": "6315d205-1f97-4c97-bb53-d20f43da87ed",
+      "name": "Finalise Release Decision"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst assessment = $input.first().json;\n\nconst final_decision =\n  assessment.readiness_decision === \"REVIEW\"\n    ? \"REVIEW\"\n    : \"NO_GO\";\n\nreturn [{\n  json: {\n    ...assessment,\n    reviewer_name: \"\",\n    reviewer_decision: \"NOT_REQUESTED\",\n    reviewer_comments: \"\",\n    approval_submitted_at: null,\n    final_decision,\n    final_reason: assessment.reason,\n    finalised_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        96
+      ],
+      "id": "0bb1d458-2f6c-41dd-b384-b7ddb8baa8ae",
+      "name": "Finalise Blocked Release"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "RESELECT_TABLE_IN_N8N",
+          "mode": "list",
+          "cachedResultName": "release_decision_audit"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "release_id": "={{ $json.release_id }}",
+            "connector_id": "={{ $json.connector_id }}",
+            "scenario": "={{ $json.scenario }}",
+            "requested_by": "={{ $json.requested_by }}",
+            "contract_verdict": "={{ $json.verdict }}",
+            "http_status": "={{ $json.http_status }}",
+            "final_decision": "={{ $json.final_decision }}",
+            "reviewer_name": "={{ $json.reviewer_name }}",
+            "reviewer_decision": "={{ $json.reviewer_decision }}",
+            "reviewer_comments": "={{ $json.reviewer_comments }}",
+            "final_reason": "={{ $json.final_reason }}",
+            "finalised_at": "={{ $json.finalised_at }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "release_id",
+              "displayName": "release_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "connector_id",
+              "displayName": "connector_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "scenario",
+              "displayName": "scenario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "requested_by",
+              "displayName": "requested_by",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "contract_verdict",
+              "displayName": "contract_verdict",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "http_status",
+              "displayName": "http_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "final_decision",
+              "displayName": "final_decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "reviewer_name",
+              "displayName": "reviewer_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "reviewer_decision",
+              "displayName": "reviewer_decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "reviewer_comments",
+              "displayName": "reviewer_comments",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "final_reason",
+              "displayName": "final_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "finalised_at",
+              "displayName": "finalised_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        -96
+      ],
+      "id": "f68a4bdf-e300-4f01-8851-40c597531ad0",
+      "name": "Save Release Audit"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Release Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Release Request": {
+      "main": [
+        [
+          {
+            "node": "Run Partner Contract Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Partner Contract Check": {
+      "main": [
+        [
+          {
+            "node": "Assess Release Readiness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess Release Readiness": {
+      "main": [
+        [
+          {
+            "node": "Approval Required?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Required?": {
+      "main": [
+        [
+          {
+            "node": "Human Release Approval",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalise Blocked Release",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Human Release Approval": {
+      "main": [
+        [
+          {
+            "node": "Finalise Release Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalise Release Decision": {
+      "main": [
+        [
+          {
+            "node": "Save Release Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalise Blocked Release": {
+      "main": [
+        [
+          {
+            "node": "Save Release Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "tags": []
+}

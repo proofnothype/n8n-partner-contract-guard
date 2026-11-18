@@ -1,0 +1,81 @@
+{
+  "name": "01 - Mock Partner API",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "partner-alpha/customers",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "f74b600b-afad-4154-ac9d-a62228150ddb",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst scenario =\n  $input.first().json.query?.scenario || \"v1_ok\";\nconst attempt = Number($input.first().json.query?.attempt ?? 1);\n\n// Synthetic customer records.\n// No real customer information is used.\nconst original = [\n  {\n    customer_id: \"C001\",\n    email: \"alice@example.com\",\n    credit_limit: 5000,\n    updated_at: \"2026-11-17T09:00:00Z\"\n  },\n  {\n    customer_id: \"C002\",\n    email: \"bob@example.com\",\n    credit_limit: 7500,\n    updated_at: \"2026-11-17T09:00:00Z\"\n  },\n  {\n    customer_id: \"C003\",\n    email: \"carol@example.com\",\n    credit_limit: 3000,\n    updated_at: \"2026-11-17T09:00:00Z\"\n  }\n];\n\nlet items = original.map(record => ({ ...record }));\n\nswitch (scenario) {\n  case \"v1_ok\":\n    // Expected contract: all required fields are valid.\n    break;\n\n  case \"v2_rename\":\n    // Breaking change: customer_id is missing.\n    items = items.map(({ customer_id, ...rest }) => ({\n      id: customer_id,\n      ...rest\n    }));\n    break;\n\n  case \"v2_type_drift\":\n    // Breaking change: number becomes string.\n    items[0].credit_limit = \"5000\";\n    break;\n\n  case \"empty_200\":\n    // HTTP success but contradictory business data.\n    items = [];\n    break;\n\n  case \"null_email\":\n    // Invalid null in a required, non-nullable field.\n    items[0].email = null;\n    break;\n\n  case \"v2_additive\":\n    // Non-breaking additional optional field.\n    items = items.map(record => ({\n      ...record,\n      segment: \"retail\"\n    }));\n    break;\n\n    \ncase \"down_503\":\n  return [{\n    json: {\n      scenario: \"down_503\",\n      error: \"Partner API temporarily unavailable\",\n      simulated_http_status: 503\n    }\n  }];\n\ncase \"rate_429\":\n  return [{\n    json: {\n      scenario: \"rate_429\",\n      error: \"Too many requests\",\n      simulated_http_status: 429\n    }\n  }];\n\ncase \"rate_429_once\":\n  if (attempt === 1) {\n    return [{\n      json: {\n        scenario: \"rate_429_once\",\n        error: \"Rate limit exceeded. Retry the request.\",\n        simulated_http_status: 429,\n        attempt: 1\n      }\n    }];\n  }\n  break;\n\n\n  default:\n    throw new Error(`Unknown scenario: ${scenario}`);\n}\n\nreturn [\n  {\n    json: {\n      connector_id: \"partner_alpha\",\n      version: scenario.startsWith(\"v2_\") ? \"v2\" : \"v1\",\n      scenario,\n      total_count: 3,\n      items\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "23fa2836-3be5-42e5-aad8-a2ad3981b57d",
+      "name": "Generate Partner Response"
+    },
+    {
+      "parameters": {
+        "enableResponseOutput": true,
+        "options": {
+          "responseCode": "={{ $json.simulated_http_status ?? 200 }}"
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        448,
+        0
+      ],
+      "id": "9b18acec-ac98-49ca-8f7d-2a7d79a63b55",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Generate Partner Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Partner Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "tags": []
+}

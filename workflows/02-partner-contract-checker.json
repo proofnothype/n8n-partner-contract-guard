@@ -1,0 +1,376 @@
+{
+  "name": "02 - Partner Contract Checker",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0bb41aae-a263-40ba-b860-03b5cbb6bdb6",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "https://YOUR_N8N_HOST/webhook/partner-alpha/customers",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "scenario",
+              "value": "={{ $('Prepare Contract Request').first().json.scenario }}"
+            },
+            {
+              "name": "attempt",
+              "value": "={{ $runIndex + 1 }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "521d5cf4-30d4-4251-83a4-86103bce6fe7",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "d35f35d4-6df6-43f4-bcff-1351923b878f",
+              "leftValue": "={{ [429, 503].includes(Number($json.statusCode)) && $runIndex < 2 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        448,
+        0
+      ],
+      "id": "ab13b93e-da45-4062-b408-b144b0d788b0",
+      "name": "Should Retry"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        496,
+        208
+      ],
+      "id": "02e956fc-b402-4c92-b98a-35ac71b69fc4",
+      "name": "Wait Before Retry"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst response = $input.first().json;\n\n// HTTP Request has \"Include Response Headers and Status\" enabled.\nconst statusCode = response.statusCode;\n\nif (statusCode !== 200) {\n  const isAuthError =\n    statusCode === 401 || statusCode === 403;\n\n  const message = isAuthError\n    ? `API authentication failed (HTTP ${statusCode})`\n    : `API request failed (HTTP ${statusCode ?? \"unknown\"})`;\n\n  return [{\n    json: {\n      scenario: isAuthError ? \"auth_missing\" : \"http_error\",\n      http_status: statusCode ?? null,\n      verdict: \"ERROR\",\n      records_checked: 0,\n      errors: [message],\n      warnings: []\n    }\n  }];\n}\n\nlet data = response.body ?? response;\n\nif (typeof data === \"string\") {\n  data = JSON.parse(data);\n}\n\nconst errors = [];\nconst warnings = [];\n\n// Our agreed v1 contract. These fields must exist.\nconst expectedFields = {\n  customer_id: \"string\",\n  email: \"string\",\n  credit_limit: \"number\",\n  updated_at: \"string\"\n};\n\n// Check HTTP status.\nif (statusCode !== 200) {\n  errors.push(`Unexpected HTTP status: ${statusCode}`);\n}\n\n// Check response envelope.\nif (!Array.isArray(data.items)) {\n  errors.push(\"items must be an array\");\n} else {\n  // Our mock returns all records in one response.\n  if (data.total_count !== data.items.length) {\n    errors.push(\n      `Record count mismatch: expected ${data.total_count}, received ${data.items.length}`\n    );\n  }\n\n  // Check each customer record.\n  data.items.forEach((customer, index) => {\n    for (const [field, type] of Object.entries(expectedFields)) {\n      if (!(field in customer)) {\n        errors.push(`Record ${index + 1}: missing ${field}`);\n      } else if (customer[field] === null) {\n        errors.push(`Record ${index + 1}: ${field} is null`);\n      } else if (typeof customer[field] !== type) {\n        errors.push(`Record ${index + 1}: ${field} should be ${type}`);\n      }\n    }\n\n    for (const field of Object.keys(customer)) {\n      if (!(field in expectedFields)) {\n        const message = `Unexpected optional field: ${field}`;\n        if (!warnings.includes(message)) warnings.push(message);\n      }\n    }\n  });\n}\n\n// Determine the result.\nconst verdict = errors.length > 0\n  ? \"FAIL\"\n  : warnings.length > 0\n    ? \"WARN\"\n    : \"PASS\";\n\nreturn [{\n  json: {\n    scenario: data.scenario,\n    http_status: statusCode,\n    verdict,\n    records_checked: Array.isArray(data.items) ? data.items.length : 0,\n    errors,\n    warnings\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "ecea43c0-9370-4ddf-85f7-3490aa257f09",
+      "name": "Validate Partner Contract"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "RESELECT_TABLE_IN_N8N",
+          "mode": "list",
+          "cachedResultName": "contract_test_results"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "scenario": "={{ $json.scenario }}",
+            "verdict": "={{ $json.verdict }}",
+            "http_status": "={{ $json.http_status }}",
+            "records_checked": "={{ $json.records_checked }}",
+            "errors": "={{ JSON.stringify($json.errors) }}",
+            "warnings": "={{ JSON.stringify($json.warnings) }}",
+            "tested_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "scenario",
+              "displayName": "scenario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "verdict",
+              "displayName": "verdict",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "http_status",
+              "displayName": "http_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "records_checked",
+              "displayName": "records_checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "errors",
+              "displayName": "errors",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "warnings",
+              "displayName": "warnings",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "tested_at",
+              "displayName": "tested_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        0
+      ],
+      "id": "6722e28a-3c6c-48b4-a9d7-e6ece1ee93fd",
+      "name": "Data Table Insert"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "release_id"
+            },
+            {
+              "name": "connector_id"
+            },
+            {
+              "name": "scenario"
+            },
+            {
+              "name": "requested_by"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        -160
+      ],
+      "id": "c7c7b71d-55ee-49dc-8192-15da9bb4d8b8",
+      "name": "Called by Readiness Orchestrator"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst request = $input.first().json;\n\nreturn [{\n  json: {\n    release_id: request.release_id ?? \"REL-MANUAL\",\n    connector_id: request.connector_id ?? \"partner_alpha\",\n    scenario: request.scenario ?? \"v1_ok\",\n    requested_by: request.requested_by ?? \"manual_test\"\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -224
+      ],
+      "id": "306e8ee0-7b8e-4577-a76e-d24dc957c0d2",
+      "name": "Prepare Contract Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst request = $('Prepare Contract Request').first().json;\nconst result = $('Validate Partner Contract').first().json;\n\nreturn [{\n  json: {\n    release_id: request.release_id,\n    connector_id: request.connector_id,\n    scenario: request.scenario,\n    requested_by: request.requested_by,\n    http_status: result.http_status,\n    verdict: result.verdict,\n    records_checked: result.records_checked,\n    errors: result.errors,\n    warnings: result.warnings\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "a7e387a3-c048-49f7-8e45-c7b6007075b1",
+      "name": "Return Contract Result"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Prepare Contract Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Should Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Retry": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Retry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validate Partner Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Retry": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Partner Contract": {
+      "main": [
+        [
+          {
+            "node": "Data Table Insert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Called by Readiness Orchestrator": {
+      "main": [
+        [
+          {
+            "node": "Prepare Contract Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Contract Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data Table Insert": {
+      "main": [
+        [
+          {
+            "node": "Return Contract Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "tags": []
+}
